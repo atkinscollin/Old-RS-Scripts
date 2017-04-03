@@ -1,0 +1,1298 @@
+program PC;
+{$DEFINE SMART8}
+{$I SRL-OSR/SRL.Simba}
+{$I SRL-OSR/SRL/Reflection/Reflection.simba}
+
+{*          elfyyy's Pest Control Script!
+
+      Please report any and all bugs to thread
+
+     Please Read The Thread For Full Instructions
+
+     Customized by blak fishy
+
+*}
+
+var  {*Player setup variables*}
+  rewards, prayers: tStringArray;
+  breakRandomness, breakTimes: tintegerArray;
+  name, loginName, password, startPortal: string;
+  takeBreaks, attackPortals, hopWorlds: boolean;
+
+{*|||||||User setup|||||||*}
+procedure setupPlayer;
+begin
+  loginName := ''; // UserName
+  password := '';   // Pasword
+  prayers := ['sharp eye']; //Prayers => [''] is none
+  rewards := ['']; // Reward(s) to buy
+  takeBreaks := False; // Take Breaks?
+  breakTimes := [120, 60]; // [Length To Play Until Breaks, Length Of Breaks] (In Minutes)
+  breakRandomness := [50, 50]; // Randomness of Break Times ^^
+  attackPortals := False; // Attack Portals?
+  startPortal := 'SWest'; //Portal to run to @ start. East/West/SEast/SWest/Random
+  hopWorlds := False; // Hop for correct iemz pc world?
+end;
+
+{*| | | | | | | | | | | | | | |
+| | | | | | | | | | | | | | | |
+| | | | |END OF SETUP | | | | |
+| | | | | | | | | | | | | | | |
+| | | | | | | | | | | | | | | |
+| | | | | | | | | | | | | | | *}
+
+procedure declarePlayer;
+begin
+  name := 'Iemz Pc';
+  numberOfPlayers(1);
+  currentPlayer := 0;
+  players[0].name := loginName;
+  players[0].pass := password;
+  players[0].active := true;
+  players[0].strings := prayers;
+  players[0].member := attackPortals;
+end;
+
+
+{*Main script consts, vars, & types*}
+const
+  VERSION = '3.8';
+  USE_AUTO_CHECKER = True;
+  PORTAL_EAST = 0;
+  PORTAL_WEST = 1;
+  PORTAL_SOUTHEAST = 2;
+  PORTAL_SOUTHWEST = 3;
+
+type
+  tMonster = record
+    mainColor, sideColor: integer;
+    names: string;
+  end;
+  tPortal = record
+    dtm, x1, y1, x2, y2: integer;
+    names, message: string;
+    dropped, dead: boolean;
+    mainColorTPA, sideColorTpa: tPointArray;
+    loc: tPoint;
+  end;
+  tPortalArray = array of tPortal;
+
+var
+  status: string;
+  getLocationT, prayFail, breakTimer, startLine, breakTime, rewardNum, bought, timeGone, boatAttempts, dtmIBoat, gamesWon, gamesLost, gamesNoDmg, zeal, zealPH, currentW, hotW, eastCross, westCross, southEastCross, southWestCross, startPortalInt: integer;
+  portals: tPortalArray;
+  center, home, east, sEast, sWest, west, eastGate, southGate, westGate: tPoint;
+  checkPoints, need2GetLoc: boolean;
+  monsters, monstersNoPort: tStringArray;
+  eastLine, southLine, westLine, fence, gates: tPointArray;
+
+  {*Forwards*}
+function blindWalk1(tile: Tpoint): boolean; forward;
+
+function getLocation: string; forward;
+
+  {*Custom find chat message, modified from SRL-OSR*}
+function findMyChatMessage(chatMsg: string; start: integer): Boolean;
+var
+  i: integer;
+begin
+  for i := start to 8 do
+    if (pos(chatMsg, getChatBoxText(i, clMessage)) > 0) then
+    begin
+      result := true;
+      exit;
+    end;
+end;
+
+  {*Progress report*}
+procedure callProg;
+begin
+  clearDebug;
+  timeGone := ((getTimeRunning - breakTime) / 1000);
+  zeal := gamesWon * 2;
+  zealPH := (3600 * (zeal)) / ((timeGone));
+  writeLn('|==========================================================');
+  writeLn('|	                 elfyyy''s Pest Control            ');
+  writeLn('|                            Version ' + toStr(version));
+  writeLn('| ====================================================== ');
+  writeLn('|  Time Running                 : ' + timeRunning);
+  writeLn('|  Status                       : ' + status)
+  writeLn('|  Games Played                 : ' + IntToStr(gamesWon + gamesLost + gamesNoDmg));
+  writeLn('|  Won/Lost/Not Enough Damage   : ' + intToStr(gamesWon) + ' / ' + intToStr(gamesLost) + ' / ' + intToStr(gamesNoDmg));
+  writeLn('|  Points Earned/Per Hour       : ' + intToStr(zeal) +  ' / ' + intToStr(zealPH))
+  writeLn('|  Rewards Bought               : ' + intToStr(bought));
+  writeLn('|==========================================================');
+end;
+
+  {*Determines which portal(s) is/are currently active/dead*}
+procedure whichPortal;
+var
+  X, Y, portal, I: integer;
+begin
+  callProg;
+  if getLocation = 'HomeLand' then
+    exit;
+  startLine := 1;
+  for I := 8 downto 1 do
+    if pos('You board the lander', getChatBoxText(i, clMessage)) > 0 then
+    begin
+      startLine := i + 1;
+      break;
+    end;
+  for portal := PORTAL_EAST to PORTAL_SOUTHWEST do
+  begin
+    if findMyChatMessage(portals[portal].message, startLine) then
+      portals[portal].dropped := True;
+    if portals[portal].dropped then
+      if (findDTM(portals[portal].dtm, X, Y, portals[portal].x1, Portals[Portal].y1, Portals[Portal].x2, portals[portal].y2)) then
+        portals[portal].dead := true;
+  end;
+end;
+
+  {*Custom WalkToTileMs, modified from OSR-Reflection*}
+function R_WalkToTileMS1(tile: TPoint): boolean;
+var
+  P: TPoint;
+begin
+  P := R_TileToMS(tile);
+  if (P.x = - 1) and (P.y = - 1) then
+    exit;
+  mMouse(P.x, P.y, 5, 5);
+  if R_WaitUpText('Walk here', 50) then
+    clickMouse2(MOUSE_LEFT);
+  wait(randomRange(120, 180));
+  result := (R_NearTile(tile, 2));
+end;
+
+  {*Checks if we are stuck behind portal/brawler & attempts to fix*}
+function checkStuck(tile: tPoint): Boolean;
+var
+  us, tP: tPoint;
+  tPA: tPointArray;
+begin
+  result := False;
+  if not R_IsWalking then
+    result := true;
+  if result then
+  begin
+    us := R_GetTileGlobal;
+    case random(1) of
+      0: tP := rotatePoint(tile, pi / 2, us.x, us.y);
+      1: tP := rotatePoint(tile, 3 * pi / 2, us.x, us.y);
+    end;
+    tPA := tPABetweenPoints(us, tP, randomRange(4, 6), 1);
+    if length(tPA) < 2 then
+      exit;
+    if getLocation = 'HomeLand' then
+      exit;
+    R_WalkToTileMS1(tPA[1]);
+  end;
+end;
+
+  {*Sets up needed portal vars for whichPortal*}
+procedure setupPortals;
+begin
+  setArrayLength(portals, 4);
+  with portals[PORTAL_EAST] do
+  begin
+    names := 'East Portal';
+    message := 'blue';
+    dTM := EastCross;
+    dropped := false;
+    dead := false;
+    x1 := 392;
+    y1 := 33;
+    x2 := 419;
+    y2 := 60;
+    loc := east;
+  end;
+  with portals[PORTAL_WEST] do
+  begin
+    names := 'West Portal';
+    message := 'purple';
+    dTM := westCross;
+    dropped := false;
+    dead := false;
+    x1 := 355;
+    y1 := 31;
+    x2 := 387;
+    y2 := 61;
+    loc := west;
+  end;
+  with portals[PORTAL_SOUTHEAST] do
+  begin
+    names := 'SouthEast Portal';
+    message := 'yellow';
+    dTM := southEastCross;
+    dropped := false;
+    dead := false;
+    x1 := 428;
+    y1 := 31;
+    x2 := 461;
+    y2 := 60;
+    loc := sEast;
+  end;
+  with portals[PORTAL_SOUTHWEST] do
+  begin
+    names := 'SouthWest Portal';
+    message := 'red';
+    dTM := southWestCross;
+    dropped := false;
+    dead := false;
+    x1 := 470;
+    y1 := 30;
+    x2 := 500;
+    y2 := 60;
+    loc := sWest;
+  end;
+end;
+
+  {*Randomized mouse function*}
+procedure elfMouse(X, Y: integer);
+begin
+  mMouse(X + randomRange( - 5, 5), y + randomRange( - 5, 5), 0, 0);
+end;
+
+  {*My function to turn run on, made before SRL-OSR's was updated*}
+function setMyRun(run: boolean): boolean;
+var
+  cCount: Integer;
+begin
+  result := false;
+  cCount := countColorTolerance(106950, 568, 131, 589, 146, 20);
+  if (run) then
+  begin
+    if (cCount < 5) then
+      mouseBox(568, 131, 589, 146, MOUSE_LEFT);
+    result := true;
+  end
+  else
+  begin
+    if (cCount > 5) then
+      mouseBox(568, 131, 589, 146, MOUSE_LEFT);
+    result := true;
+  end;
+end;
+
+  {*If we aren't in a friend chat, joins one*}
+procedure joinClan(name: string);
+var
+  X, Y, L, W, wX: integer;
+begin
+  if not loggedIn then
+    exit;
+  fTab(TAB_CLAN);
+  if findColorSpiralTolerance(X, Y, 6619135, 605, 225, 675, 245, 5) then
+    exit;
+  elfMouse(600, 450) wait(randomRange(590, 760));
+  clickMouse2(MOUSE_LEFT);
+  typeSendEx(name, true);
+  markTime(L);
+  repeat
+    if not loggedIn then
+      exit;
+    wait(100);
+    if findColorSpiralTolerance(X, Y, 6619135, 605, 225, 675, 245, 5) then
+      exit;
+    if findChatBoxText('anned', 8, clBlack) then
+    begin
+      wait(randomRange(1600, 2800));
+      status := 'BANNED...From Friend chat ;) Waiting 1 hour to try again';
+      logout;
+      W := (60 * 60000);
+      wX := (10 * 60000);
+      wait(W + random(wX));
+      logInPlayer;
+      setAngle(0);
+      currentW := (CurrentWorld);
+      joinClan(name);
+      wait(randomRange(5000, 7500));
+    end;
+  until (findColorSpiralTolerance(X, Y, 6619135, 605, 225, 675, 245, 5) or (timeFromMark(L) > 20000))
+end;
+
+  {*Logs us in, while setting new vars/necassary procedures*}
+procedure myLogIn;
+begin
+  if not loggedIn then
+  begin
+    logInPlayer;
+    setAngle(0);
+    //currentW := (currentWorld);
+    //joinclan(name);
+    //wait(randomRange(5000, 7500));
+  end;
+end;
+
+  {*Handles our breaking*}
+procedure breakHandler;
+var
+  startBreak, timeInToBreak, lengthOfBreak, tempTime, tInRandomness, tLengthRandomness: integer;
+begin
+  if (not takeBreaks) then
+    exit;
+  tInRandomness := breakRandomness[0];
+  tLengthRandomness := breakRandomness[1];
+  timeInToBreak := (breakTimes[0] * 60000) + randomRange(- tInRandomness, tInRandomness);
+  lengthOfBreak := (breakTimes[1] * 60000) + randomRange(- tLengthRandomness, tLengthRandomness);;
+  if timeInToBreak < (getTimeRunning - breakTimer) then
+  begin
+    breakTime := breakTime + lengthOfBreak;
+    tempTime := getTimeRunning;
+    logout;
+    startBreak := getTimeRunning;
+    while tempTime < (lengthOfBreak + startBreak) do
+    begin
+      tempTime := getTimeRunning;
+      status := ('Taking Break... We have ' + inttostr((lengthOfBreak + startBreak - tempTime) / 60000) + ' mins until break is over');
+      wait(5000);
+      callProg;
+    end;
+    status := 'Logging In From Break';
+    callProg;
+    myLogIn;
+    breakTimer := GetTimeRunning;
+  end;
+end;
+
+  {*Opens the world screen for world hopping*}
+function openWScreen: Boolean;
+var
+  X, Y: integer;
+begin
+  result := false;
+  if findColorTolerance(X, Y, 3166829, 350, 190, 435, 220, 10) then
+    result := true;
+  if loggedIn then
+    exit;
+  if not result then
+  begin
+    mMouse(54, 475, 1, 1);
+    wait(200);
+    clickMouse2(MOUSE_LEFT);
+    wait(1500);
+    result := true;
+  end;
+end;
+
+  {*AntiBan used primarily while in combat*}
+procedure fightAntiBan;
+begin
+  case random(500) of
+    20..24: elfMouse(Random(765), Random(502));
+    25..29: randomMovement;
+    30..34: pickupMouse;
+    35..39: randomRClick;
+    40..44: randomTab(True);
+    45..49: mMouseOffClient('Rand');
+    71..100: makeCompass('Rand');
+  end;
+end;
+
+{*Chooses Correct world to hop to, since SRL-OSR's is broken*}
+procedure myWorld(W: integer);
+var
+  wArray: array of Integer;
+  I: Integer;
+begin
+  wArray := [301, 302, 303, 304, 305, 306, 308, 309, 310, 311, 312, 313, 314, 316, 317, 318, 319, 320, 321, 322, 325, 326, 327, 328, 329, 330, 333, 334, 335, 336, 337, 338, 341, 342, 343, 344, 345, 346, 349, 350, 351, 352, 353, 354, 357, 358, 359, 360, 361, 362, 365, 366, 367, 368, 369, 370, 373, 374, 375, 376, 377, 378];
+  if inIntArrayEx(wArray, I, W) then
+  begin
+    elfMouse(250 + ((I / 16) * 90), 80 + (24 * (I mod 16)));
+    wait(1000) clickMouse2(MOUSE_LEFT);
+    exit;
+  end
+  else
+    I := 28;
+  elfMouse(250 + ((i / 16) * 90), 80 + (24 * (I mod 16)));
+  Wait(1000);
+  clickMouse2(MOUSE_LEFT);
+  exit;
+end;
+
+  {*Determines what world chat is in*}
+  {*Written by Turpinator, modified by me*}
+function world: integer;
+var
+  J, I, X, Y, tens, ones, L, dCount, maxLoc, finalLoc: integer;
+  main, dif, zeroToNine: tIntegerArray;
+begin
+  if not loggedIn then
+    exit;
+  setLength(main, 10);
+  setLength(zeroToNine, 10);
+  zeroToNine[0] := bitmapFromString(5, 8, 'meJxjYGBI+f8fghjAbAYYgAtShcuAahEAGQoq5Q==');
+  zeroToNine[1] := bitmapFromString(3, 8, 'meJxjYGBI+f+fAUxCGAwwEWIYEF1ABABdJBo3');
+  zeroToNine[2] := bitmapFromString(5, 8, 'meJxjYGBI+f8fghjAbAYYQGbjkSKGzYBkCwQBAMlcI78=');
+  zeroToNine[3] := bitmapFromString(4, 8, 'meJxjYGBI+f8fiBjADAYwgDPgbLgaNHE4G00vXAQAxUoe+w==');
+  ZeroToNine[4] := bitmapFromString(4, 8, 'meJxL+f+fAQZS8LKxknCESxcAfc4e+w==');
+  ZeroToNine[5] := bitmapFromString(4, 8, 'meJxL+f8/BQkxwAAaG00WqwJkcbgIAGUwI78=');
+  ZeroToNine[6] := bitmapFromString(5, 8, 'meJxjYACBlP//gYgBxmbAEESWgouj6UJWjMmFC0LYAHSRKuU=');
+  ZeroToNine[7] := bitmapFromString(4, 8, 'meJxL+f8/BYYYYADOplAQCAAoQRo3');
+  ZeroToNine[8] := bitmapFromString(5, 8, 'meJxjYGBI+f8fghjAbAYYgAvCuQykKMavFwC6dy1H');
+  ZeroToNine[9] := bitmapFromString(5, 8, 'meJxjYGBI+f8fghjAbAYYgAvCucgKkBloKtHMwcoFAJogI78=');
+  for J := 0 to 9 do
+  begin
+    tens := 0;
+    ones := 0;
+    for I := 9 downto 0 do
+    begin
+      if findBitmapIn(zeroToNine[I], X, Y, 690, 269 + J * 15, 700, 278 + J * 15) then
+        tens := i;
+      if findBitmapIn(zeroToNine[i], X, Y, 698, 269 + J * 15, 704, 278 + J * 15) then
+        ones := i;
+    end;
+    main[J] := tens * 10 + ones;
+  end;
+  for I := 0 to 9 do
+    freeBitmap(zeroToNine[i]);
+  setLength(dif, length(main));
+  for L := 0 to length(main) - 1 do
+    dif[L] := 1;
+  quickSort(main);
+  dCount := 0;
+  for L := 0 to length(main) - 2 do
+    if main[L] = main[L + 1] then
+      inc(dif[dCount])
+    else
+      inc(dCount);
+  maxLoc := 0;
+  for L := 0 to length(dif) - 1 do
+    if (dif[L] > dif[maxLoc]) then
+      maxLoc := L;
+  finalLoc := 0;
+  for L := 0 to maxLoc - 1 do
+    finalLoc := finalLoc + dif[L];
+  result := main[finalLoc];
+end;
+
+  {*Chooses our prayer(s)*}
+procedure praySelect;
+var
+  Prayer: array of string;
+  I, T, S, H: integer;
+  tPA: tPointArray;
+begin
+  if (getLocation = 'HomeLand') or (timeFromMark(prayFail) < 25000) then
+    exit;
+  if length(players[currentPlayer].strings) = 0 then
+    exit;
+  setArrayLength(TPA, 29);
+  for I := 0 to 28 do
+    tPA[i] := intToPoint(568 + (37 * (I / 6)), 230 + (37 * (I mod 6)));
+  prayer := ['thick skin', 'rock skin', 'protect item', 'incredible reflexes', 'mystic might', 'piety', 'burst of strength', 'superhuman strength', 'hawk eye', 'protect from magic', 'retribution', 'no', 'clarity of thought', 'improved reflexes', 'mystic lore', 'protect from missiles', 'redemption', 'no', 'sharp eye', 'rapid restore', 'steel skin', 'protect from melee', 'smite', 'no', 'mystic will', 'rapid heal', 'ultimate strength', 'eagle eye', 'chivalry'];
+  H := high(players[currentPlayer].Strings);
+  for T := 0 to H do
+  begin
+    for S := 0 to 28 do
+      if prayer[S] = lowercase(players[currentPlayer].strings[T]) then
+      begin
+        fTab(TAB_PRAYER);
+        elfMouse(tPA[S].X, tPA[S].y);
+        wait(500);
+        clickMouse2(MOUSE_LEFT);
+      end;
+    fTab(TAB_INV);
+  end;
+end;
+
+  {*Updates script if outdated*}
+  {*Written By Shuttleu, modified by me*}
+procedure autoUpdateMe;
+var
+  thisFile: integer;
+  onlineVersion, newScript, fileNew: string;
+begin
+  if USE_AUTO_CHECKER then
+  begin
+    onlineVersion := getPage('http://pastebin.com/raw.php?i=b4sF5MBD');
+    if (trim(onlineVersion) > VERSION) then
+    begin
+      writeLn('Using Outdated Script!!');
+      writeLn('Updating to New Version.');
+      newScript := getPage('http://pastebin.com/raw.php?i=MHrcUdf1');
+      fileNew := scriptPath + 'ElfyyyPc-V' + OnlineVersion + '.simba';
+      thisFile := rewriteFile(fileNew, true);
+      try
+        writeFileString(thisFile, newScript);
+      except
+        begin
+          writeLn('Failed writting to ' + fileNew + '!!');
+          terminateScript;
+        end;
+      end;
+      closeFile(ThisFile);
+      writeLn('New script downloaded to ' + FileNew + '!! Please use this one!!');
+      terminateScript;
+    end;
+  end
+  else
+    writeLn('!!!!! Not checking for latest version, you may be outdated!');
+end;
+
+  {*Free's dtm's*}
+procedure freeTheDTM;
+begin
+  freeDTM(dtmIBoat);
+  freeDTM(southWestCross);
+  freeDTM(eastCross);
+  freeDTM(westCross);
+  freeDTM(southEastCross);
+end;
+
+  {*Declares dtm's*}
+procedure declareDTM;
+begin
+  dtmIBoat := dTMFromString('mbQAAAHicY2VgYOABYnkGBJCBikkAsSQQM0LFOwsdGFL9JBim17gxTK1yYahLt2KQA4pzoGFGLBgMAICRBp4=');
+  southWestCross := dTMFromString('mbQAAAHicY2VgYJjOyMAwAYjnAnE/EC8AYh2guAkQKwOxChAbA/FhTQkGUSEhFCwHFOdBw4xYMBgAAOHgBhM=');
+  eastCross := dTMFromString('mbQAAAHicY2VgYJjOyMAwAYjnAnE/EC8AYh2guAkQKwOxChAbA/FhTQkGUSEhFCwHFOdBw4xYMBgAAOHgBhM=');
+  westCross := dTMFromString('mbQAAAHicY2VgYJjOyMAwAYjnAnE/EC8AYh2guAkQKwOxChAbA/FhTQkGUSEhFCwHFOdBw4xYMBgAAOHgBhM=');
+  southEastCross := dTMFromString('mbQAAAHicY2VgYJjOyMAwAYjnAnE/EC8AYh2guAkQKwOxChAbA/FhTQkGUSEhFCwHFOdBw4xYMBgAAOHgBhM=');
+  addonterminate('FreeTheDTM');
+end;
+
+  {*Determines our current location i.e island, boat, boat at island ect.*}
+function getLocation: string;
+var
+  X, Y, T: integer;
+begin
+  MarkTime(t);
+  result := '';
+  if findColorSpiralTolerance(X, Y, 5855173, mMX1, mMY1, mMX2, mMY2, 45) and findColorSpiralTolerance(X, Y, 197048, mMX1, mMY1, mMX2, mMY2, 45) and findColorSpiralTolerance(X, Y, 60395, mMX1, mMY1, mMX2, mMY2, 45) and findColorSpiralTolerance(X, Y, 12161149, mMX1, mMY1, mMX2, mMY2, 45) then
+  begin
+    result := 'HomeLand';
+  end;
+  if findColorSpiralTolerance(X, Y, 63488, 352, 10, 514, 89, 5) and findColorSpiralTolerance(X, Y, 3355647, 352, 10, 514, 89, 10) and findDTM(dtmIBoat, X, Y, mSX1, mSY1, mSX2, mSY2) then
+  begin
+    result := 'IslandBoat';
+    exit;
+  end;
+  if findColorSpiralTolerance(X, Y, 16777113, 0, 0, 150, 100, 3) then
+  begin
+    result := 'Boat';
+    exit;
+  end;
+  getLocationT := timeFromMark(t);
+end;
+
+  {*Opens menu to spend points*}
+function openPestPoints: boolean;
+var
+  X, Y, q, I, h: integer;
+  tPA: tPointArray;
+  theATPA: t2DPointArray;
+  mainBox: tBox;
+begin
+  result := false;
+  if findColorTolerance(X, Y, 2070783, 142, 14, 368, 38, 10) then
+    result := true;
+  if result then
+    exit;
+  R_BlindWalk(point(2662, 2649));
+  repeat
+    if not loggedIn then
+      exit;
+    markTime(q);
+    if findColorsTolerance(tPA, 2631722, MSX1, MSY1, MSX2, MSY2, 15) then
+    begin
+      theATPA := splitTPAEx(tPA, 10, 30);
+      H := high(theATPA);
+      for I := 0 to H do
+      begin
+        mainBox := getTPABounds(theATPA[i]);
+        if findColorsTolerance(tPA, 2381214, mainBox.x1, mainBox.Y1, mainBox.X2, mainBox.Y2, 15) then
+        begin
+          middleTPAEx(tPA, X, Y);
+          elfMouse(X, Y);
+          if waitUpText('alk', 1) then
+          begin
+            clickMouse2(MOUSE_RIGHT);
+            chooseOption('xchang');
+            wait(2000);
+            if findColorTolerance(x, y, 2070783, 142, 14, 368, 38, 25) then
+              result := true;
+          end;
+        end;
+      end;
+    end;
+  until (result);
+end;
+
+  {*Purchases reward from menu*}
+procedure pickReward(R: string);
+var
+  rArray: tStringArray;
+  I, X, Y: integer;
+begin
+  if not LoggedIn then
+    exit;
+  rArray := ['attack', 'defence', 'magic', 'prayer', 'strength', 'ranged', 'hitpoints', 'mace', 'robe', 'mage helm', 'melee helm', 'top', 'gloves', 'range helm', 'seal'];
+  if instrArrEx(lowercase(R), rArray, I) then
+  begin
+    inc(bought);
+    if I < 7 then
+    begin
+      elfMouse(205 + ((I / 4) * 215), 70 + (38 * (I mod 4)));
+      wait(500);
+      clickMouse2(MOUSE_LEFT);
+      wait(1000);
+      if findColorTolerance(X, y, 65535, 223, 282, 282, 300, 15) then
+      begin
+        elfMouse(x, y);
+        wait(500);
+        clickMouse2(Mouse_Left);
+        wait(250);
+        exit;
+      end;
+    end;
+    if I >= 7 then
+    begin
+      holdMouse(487, 257, MOUSE_LEFT);
+      wait(2000);
+      ReleaseMouse(487, 257, MOUSE_LEFT);
+      I := I - 7;
+      elfMouse(100 + ((I / 4) * 215), 125 + (39 * (I mod 4)));
+      wait(500);
+      clickMouse2(MOUSE_LEFT);
+      wait(1000);
+      if findColorTolerance(X, Y, 65535, 223, 282, 282, 300, 15) then
+      begin
+        elfMouse(X, Y);
+        wait(1000);
+        clickMouse2(MOUSE_LEFT);
+        Wait(250);
+        exit;
+      end;
+    end;
+  end
+  else
+  begin
+    writeLn('Invalid Reward Choosen!');
+    terminateScript;
+  end;
+end;
+
+  {*Custom WalkPath, modified from OSR-Reflection*}
+function R_WalkPath1(path: tPointArray): boolean;
+var
+  I, K, H, T, tT, fails, lP: integer;
+  P, mM, mMF: tPoint;
+begin
+  T := GetSystemTime + 10000 + Random(2000);
+  fails := 0;
+  lP := 0;
+  H := High(path);
+  while (not result) and (getSystemTime < T) and (fails < 5) do
+  begin
+    if (not loggedIn()) then
+      exit;
+    P := R_GetTileGlobal;
+    for I := H downto 0 do
+    begin
+      if ((I - lP) > 3) then
+        continue
+      else
+        lP := I;
+      MM := R_TileToMM(path[I]);
+      if getLocation = 'HomeLand' then
+        exit;
+      if mM = mMF then
+        inc(fails);
+      if R_TileOnMM(Path[i]) then
+      begin
+        if getLocation = 'HomeLand' then
+          exit;
+        R_WalkToTileMM(path[I]);
+        //CheckStuck(Path[I]);
+        MarkTime(K);
+        repeat
+          if (getLocation = 'HomeLand') or (R_NearTile(Path[H], 15)) then
+            exit;
+          if not R_IsWalking then
+            break;
+        until ((timeFromMark(K) > 2000) or fFlag(30));
+        mMF := mM;
+        T := getSystemTime + 7000 + random(1000);
+        break;
+      end;
+    end;
+    result := (I = H);
+  end;
+  markTime(tT);
+  while R_DistanceFromTile(Path[H]) > 15 do
+  begin
+    wait(500);
+    if (getLocation = 'HomeLand') or (timeFromMark(tT) > 20000)then
+      exit;
+  end;
+end;
+
+  {*Custom BlindWalk, modified from OSR-Reflection*}
+function blindWalk1(tile: tPoint): boolean;
+var
+  tries, fails, tT: integer;
+  M: tPoint;
+  ctrlPoints: tPointArray;
+begin
+  markTime(TT);
+  repeat
+    if getLocation = 'HomeLand' then
+      exit;
+    whichPortal;
+    inc(Fails);
+    if fails > 1 then
+      exit;
+    if (not loggedIn()) then
+      exit;
+    M := R_GetTileGlobal;
+    if (M.X = - 1) then
+      continue;
+    if (length(ctrlPoints) = 0) then
+      ctrlPoints := tPABetweenPoints(M, Tile, 5 + Random(2), 2);
+    inc(tries);
+    if (tries > 20) or (timeFromMark(TT) > 25000) then
+      exit;
+    R_WalkPath1(ctrlPoints);
+  until (result);
+end;
+
+  {*Checks if gate needs to be opened, attemps to open if need be*}
+function openGate(tile: tPoint): Boolean;
+var
+  t, xOffset, yOffset: integer;
+  tP: tPoint;
+  temp: tRSOBject;
+  myBox: tBox;
+  TPA: tPointArray;
+begin
+  markTime(t);
+  repeat
+    result := false;
+    if R_FindObjectNearTile(temp, 14235, OBJ_BOUNDARY, 15, tile) then
+    begin
+      if R_NearTile(eastGate, 10) then
+        xOffset := 64;
+      if R_NearTile(southGate, 10) then
+        yOffset := - 64;
+      if R_NearTile(westGate, 10) then
+        xOffset := - 64;
+      while R_IsWalking do
+        wait(50);
+      tP := R_TileOffsetToMS(temp.tile, xOffset, xOffset, 30);
+      myBox := intToBox(tP.x - 10, tP.y - 10, tP.x + 10, tP.y + 10);
+      findColorsTolerance(tPA, 6196131, myBox.x1, myBox.y1, myBox.X2, mybox.y2, 10);
+      if length(tPA) > 0 then
+        tP := middleTpa(tPA);
+      elfMouse(TP.x, TP.y);
+      if R_WaitUpText('Open', 250) then
+        clickMouse2(MOUSE_LEFT)
+      else
+      begin
+        clickMouse2(MOUSE_RIGHT);
+        chooseOption('pen');
+      end;
+    end
+    else
+    begin
+      result := true;
+      exit;
+    end;
+    result := didRedClick;
+    while R_IsWalking do
+      Wait(100);
+  until (result) or (timeFromMark(T) > 10000) or (not R_FindObjectNearTile(temp, 14235, OBJ_BOUNDARY, 15, tile));
+end;
+
+  {*Uses BlindWalk & openGate to navigate island*}
+procedure getToPortal(tile: tPoint);
+var
+  us: tPoint;
+  ourPath: tPointArray;
+  I, H, L: integer;
+  intersectingPoints: tPointArray;
+begin
+  if getLocation = 'HomeLand' then
+    exit;
+  if R_NearTile(Tile, 5) then
+    exit;
+  whichPortal;
+  us := R_GetTileGlobal;
+  ourPath := tPABetweenPoints(Us, Tile, 1, 0);
+  H := high(ourPath);
+  for I := 0 to H do
+    if (pointInTPA(ourPath[I], fence)) then
+    begin
+      setLength(intersectingPoints, (L + 1));
+      intersectingPoints[L] := ourPath[I];
+      inc(L);
+    end;
+    if length(intersectingPoints) = 0 then
+      blindWalk1(tile);
+    if length(intersectingPoints) = 1 then
+    begin
+      sortTPAFrom(gates, intersectingPoints[0]);
+      ourPath := tPABetweenPoints(us, gates[0], 4, 0);
+      if length(ourPath) = 0 then
+        exit;
+      if length(ourPath) > 1 then
+        blindWalk1(ourPath[High(ourPath) - 1])
+      else
+      if length(ourPath) = 1 then
+        blindWalk1(OurPath[0]);
+      openGate(Gates[0]);
+      blindWalk1(tile);
+    end;
+    if length(intersectingPoints) = 2 then
+    begin
+      sortTPAFrom(gates, intersectingPoints[0]);
+      ourPath := tPABetweenPoints(us, gates[0], 4, 0);
+      blindWalk1(ourPath[high(ourPath) - 1]);
+      openGate(Gates[0]);
+      sortTPAFrom(gates, intersectingPoints[1]);
+      ourPath := tPABetweenPoints(us, gates[0], 4, 0);
+      blindWalk1(ourPath[high(ourPath) - 1]);
+      openGate(Gates[0]);
+      blindWalk1(tile);
+    end;
+end;
+
+  {*Checks if we are in combat*}
+function inCombat: boolean;
+var
+  TT: Integer;
+begin
+  result := true;
+  if not R_InFight then
+  begin
+    result := False;
+    exit;
+  end;
+  markTime(TT);
+  repeat
+    if R_GetAnimation <> - 1 then
+      exit;
+  until (timeFromMark(TT) > 1500);
+  result := false;
+end;
+
+  {*Attacks monsters*}
+procedure attackMonsters(ourMonsters: tStringArray);
+var
+  I: integer;
+  temp: tNPC;
+  tP: tPoint;
+begin
+  status := ('Attacking Monsters');
+  callProg;
+  whichPortal;
+  for i := 0 to high(OurMonsters) do
+  begin
+  if GetLocation = 'HomeLand' then
+    Exit;
+    if R_FindNpcDistance(ourMonsters[i], temp, 10) then
+    begin
+      if (not PointInBox(R_TileToMs(temp.Tile), inttobox(MSX1, MSY1, MSX2, MSY2))) then
+        continue;
+      if temp.name = 'Portal' then
+      begin
+        status := ('Attacking Portals');
+        callProg;
+        tP := R_TileToMsHeight(Temp.Tile, 50);
+        elfMouse(tP.x, tP.y);
+        if R_WaitUpText('Attack', 100) then
+          clickMouse2(MOUSE_LEFT);
+        if (not R_NearTile(Temp.Tile, 4)) and (didRedClick) then
+          checkStuck(temp.tile);
+        while R_IsWalking do
+          wait(100);
+        wait(150);
+        while inCombat do
+        begin
+          fightAntiBan;
+          whichPortal;
+          if R_FindNpcDistance('Spinner', Temp, 10) then
+            break;
+        end;
+        exit;
+      end;
+      tP := R_TileToMsHeight(temp.tile, 50);
+      elfMouse(tP.x, tP.y);
+      if R_WaitUpText('Attack ' + Temp.Name, 100) then
+      begin
+        ClickMouse2(MOUSE_LEFT);
+        if (not R_NearTile(temp.tile, 2)) and (didRedClick) then
+          checkStuck(Temp.Tile);
+      end
+      else
+      begin
+        clickMouse2(Mouse_Right);
+        if (R_ChooseOption('Attack ' + temp.name)) and (not R_NearTile(temp.tile, 2)) then
+          checkStuck(Temp.Tile);
+      end;
+      while R_IsWalking do
+        wait(100);
+      while inCombat do
+      begin
+        if getLocation = 'HomeLand' then
+          exit;
+        fightAntiBan;
+        whichPortal;
+        wait(50);
+      end;
+      exit;
+    end;
+  end;
+end;
+
+  {*Enters boat from home island*}
+procedure getInBoat;
+var
+  T, X, Y, lO: Integer;
+  TP: Tpoint;
+begin
+  MarkTime(lO);
+  if not loggedIn then
+    exit;
+  repeat
+    wait(50);
+  until (findNPCChatText('Congratulations!', nothing) or findNPCChatText('noticed', nothing) or findNPCChatText('lost.', nothing) or (timeFromMark(lO) > 4000));
+  if checkPoints then
+  begin
+    if findNPCChatText('Congratulations!', nothing) then
+      gamesWon := (GamesWon + 1);
+    if FindNPCChatText('noticed', nothing) then
+      gamesNoDmg := (gamesNoDmg + 1);
+    if FindNPCChatText('lost.', nothing) then
+      gamesLost := (GamesLost + 1);
+    status := ('Getting in Boat');
+    checkPoints := False;
+  end;
+  if not R_NearTile(point(2657, 2639), 4) then
+    R_BlindWalk(point(2657, 2639));
+    tP := R_TileToMs(Point(2658, 2639))
+    elfMouse(tP.x, tP.y);
+    if waitUpTextMulti(['Cross', 'plank'], 180) then
+    begin
+      markTime(T);
+      repeat
+        if not LoggedIn then
+          break;
+        ClickMouse2(MOUSE_LEFT);
+        wait(randomRange(0, 450));
+        if (timeFromMark(T) > 3000) and findColorTolerance(X, Y, 128, 209, 370, 302, 392, 10) then
+        begin
+          if openPestPoints then
+          begin
+            if length(rewards) = 1 then
+            begin
+              pickReward(rewards[0]);
+              exit;
+            end;
+            pickReward(Rewards[RewardNum]);
+            inc(RewardNum);
+          end;
+          if rewardNum = length(rewards) then
+          begin
+            writeLn('All Rewards Bought, You Better Thank elfyyy :)');
+            status := ('All Rewards Bought');
+            terminateScript;
+          end;
+          exit;
+        end;
+        if not waitUpTextMulti(['Cross', 'plank'], 180) then
+        begin
+          wait(1200);
+          exit;
+        end;
+        if timeFromMark(T) > 10000 then
+        begin
+          R_BlindWalk(point(2657, 2639));
+          getInBoat;
+        end;
+      until (getLocation = 'Boat');
+      exit;
+    end;
+    if boatAttempts > 20 then
+      getInBoat;
+end;
+
+  {*Checks to see amount of "green names" in chat before checking worlds*}
+function cWorld: Boolean;
+var
+  I, K: Integer;
+  tPA, blah: TPointArray;
+  theBox: TboxArray;
+begin
+  if not loggedIn then
+    exit;
+  result := false;
+  setArrayLength(theBox, 10);
+  setArrayLength(tPA, 10);
+  K := 0;
+  for I := 0 to 9 do
+  begin
+    theBox[i] := intToBox(650, 268 + (15 * I), 709, 280 + (15 * I));
+    if FindColorsTolerance(blah, 65280, theBox[I].x1, theBox[I].y1, TheBox[I].x2, TheBox[I].y2, 5) then
+      K := K + 1;
+  end;
+  if K >= 4 then
+    result := True;
+end;
+
+  {*Uses world & cWorld to determine if we need to hop worlds*}
+procedure checkActiveWorld;
+var
+  K: integer;
+begin
+  fTab(TAB_CLAN);
+  if Cworld then
+    exit;
+  wait(800);
+  joinclan(name);
+  hotW := (world + 300);
+  for K := 0 to 1 do
+  begin
+    if (hotW = 300) or (hotW = 301) or (CurrentWorld = HotW) then
+      break;
+    logout;
+    openWScreen;
+    wait(1000);
+    myWorld(hotW);
+    wait(1000);
+    myLogin;
+  end;
+end;
+
+  {*Sets the portal we run to at start of game*}
+procedure chooseStartPortal;
+begin
+  case lowercase(startPortal) of
+    'east': startPortalInt := PORTAL_EAST;
+    'west': startPortalInt := PORTAL_WEST;
+    'swest': startPortalInt := PORTAL_SOUTHWEST;
+    'seast': startPortalInt := PORTAL_SOUTHEAST;
+    'random': startPortalInt := random(3);
+  end;
+end;
+
+  {*Waits in boat performing antiban & other checks/tasks*}
+procedure waitInBoat;
+var
+  S, L: integer;
+begin
+  breakHandler;
+  checkPoints := true;
+  if not loggedIn then
+    exit;
+  if hopWorlds then
+    checkActiveWorld;
+  setMyRun(true);
+  begin
+    markTime(L);
+    fTab(TAB_INV);
+    repeat
+      if not loggedIn then
+        break;
+      wait(randomRange(30, 250));
+      status := ('Waiting in boat');
+      callProg;
+      if not (getLocation = 'Boat') then
+        exit;
+      case random(100) of
+        1: hoverSkill('strength', false);
+        2: hoverSkill('hitpoints', false);
+        3: hoverSkill('magic', false);
+        4: hoverSkill('ranged', false);
+        5..7: randomMovement;
+        8..15:
+          begin
+            markTime(S);
+            repeat
+              wait(RandomRange(30, 200))
+            until (getLocation = 'IslandBoat') or (timeFromMark(S) > randomRange(5000, 20000))
+          end;
+        17..25: fightAntiBan;
+      end;
+    until (getLocation = 'IslandBoat') or (getLocation = 'HomeLand');
+    exit;
+  end
+end;
+
+  {Set's up where gates/portals/fences are on island*}
+procedure setupLocations;
+var
+  temp: tNPC;
+  topRight, bottomRight, bottomLeft, topLeft: tPoint;
+begin
+  home := R_GetTileGlobal;
+  center := point(home.x, (home.y - 17));
+  R_FindNpc('Void Knight', temp);
+  need2GetLoc := false;
+  center := temp.tile;
+  east := point((center.x + 23), (center.y - 3));
+  sEast := point((center.x + 14), (center.y - 21));
+  sWest := point((center.x - 10), (center.y - 22));
+  west := point((center.x - 23), (center.y));
+  topRight := point((center.x + 13), (center.y + 10));
+  bottomRight := point((center.x + 14), (center.y - 7));
+  bottomLeft := point((center.x - 13), (center.y - 11));
+  topLeft := point((center.x - 12), (center.y + 10));
+  eastLine := tPABetweenpoints(topRight, bottomRight, 1, 0);
+  southLine := tPABetweenpoints(bottomRight, bottomLeft, 1, 0);
+  westLine := tPABetweenpoints(bottomLeft, topLeft, 1, 0);
+  eastGate := point((center.x + 14), (center.y + 1));
+  southGate := point((center.x + 1), (center.y - 7));
+  westGate := point((center.x - 13), (center.y));
+  gates := [eastGate, westGate, southGate];
+  fence := combineTPA(fence, eastLine);
+  fence := combineTPA(fence, southLine);
+  fence := combineTPA(fence, westLine);
+  setupPortals;
+end;
+
+  {*Runs script*}
+procedure mainLoop;
+var
+  portal: integer;
+begin
+  whichPortal;
+  myLogIn;
+  while (getLocation = 'HomeLand') do
+  begin
+    need2GetLoc := True;
+    startLine := 0;
+    setupPortals;
+    status := ('Getting In Boat');
+    callProg;
+    getInBoat;
+  end;
+  while (getLocation = 'Boat') do
+    waitInBoat;
+  while (getLocation = 'IslandBoat') do
+  begin
+    status := ('Leaving The Boat');
+    callProg;
+    whichPortal;
+    praySelect;
+    markTime(prayFail);
+    breakHandler;
+    blindWalk1(point(R_GetTileGlobal.x, (R_GetTileGlobal.y - 20)));
+    if need2GetLoc then
+    begin
+      setupLocations;
+      status := ('Running To First Portal');
+      callProg;
+      getToPortal(portals[startPortalInt].loc);
+      while (not portals[startPortalInt].dropped) do
+      begin
+        if (getLocation = 'HomeLand') or (getLocation = 'IslandBoat') then
+          exit;
+        attackMonsters(monstersNoPort);
+        if (not R_NearTile(portals[startPortalInt].loc, 10) and (not portals[startPortalInt].dropped)) then
+          blindWalk1(portals[startPortalInt].loc);
+        whichPortal;
+      end;
+      while portals[startPortalInt].dropped do
+      begin
+        if (getLocation = 'HomeLand') or (getLocation = 'IslandBoat') then
+          exit;
+        attackMonsters(monsters);
+        if portals[startPortalInt].dead then
+          break;
+        if (not R_NearTile(portals[startPortalInt].loc, 10)) then
+          blindWalk1(portals[startPortalInt].Loc);
+      end;
+    end;
+  end;
+  for portal := PORTAL_EAST to PORTAL_SOUTHWEST do
+  begin
+    if (portals[portal].dropped) and (not portals[portal].dead) then
+    begin
+      status := ('Running To New Portal');
+      callProg;
+      getToportal(portals[portal].loc);
+      repeat
+        if not loggedIn then
+          exit;
+        whichPortal;
+        if (not R_NearTile(portals[portal].loc, 10)) then
+          getToPortal(portals[portal].loc);
+        attackMonsters(Monsters);
+        if (portals[portal].Dead = True) then
+          exit;
+      until ((getLocation = 'IslandBoat') or (getLocation = 'HomeLand')) exit;
+    end;
+    if portal = PORTAL_SOUTHWEST then
+    begin
+    for portal := PORTAL_EAST to PORTAL_SOUTHWEST do
+      if (not portals[portal].dead) then
+      begin
+        getToportal(portals[portal].loc);
+        while (not portals[portal].dropped) do
+        begin
+          if (getLocation = 'HomeLand') or (getLocation = 'IslandBoat') then
+            exit;
+          attackMonsters(monstersNoPort);
+          if (not R_NearTile(portals[portal].loc, 10) and (not portals[portal].dropped)) then
+            blindWalk1(portals[portal].loc);
+          whichPortal;
+        end;
+        while portals[portal].dropped do
+        begin
+          if (getLocation = 'HomeLand') or (getLocation = 'IslandBoat') then
+            exit;
+          attackMonsters(monsters);
+          if portals[portal].dead then
+            break;
+        if (not R_NearTile(portals[portal].loc, 10)) then
+          blindWalk1(portals[portal].Loc);
+        end;
+      end;
+    end
+  end;
+end;
+
+  {*Runs all needed setup functions*}
+procedure setupScript;
+begin
+  setupSRL();
+  setupReflection;
+  status := 'Setting Up Script';
+  need2GetLoc := True;
+  setupPlayer;
+  declarePlayer;
+  declareDTM;
+  autoUpdateMe;
+  chooseStartPortal;
+  if not LoggedIn then
+    logInPlayer;
+  setAngle(0);
+  if hopWorlds then begin
+    currentW := (currentWorld);
+    joinclan(name);
+    wait(1000);
+  end;
+  setMyRun(true);
+  if R_IsAutoRetaliateOn = false then
+    retaliate(true);
+  gameTab(tab_Inv);
+  if players[0].Member then
+    monsters := ['Spinner', 'Portal', 'Brawler', 'Torcher', 'Splatter', 'Ravager', 'Defiler']
+  else
+    monsters := ['Spinner', 'Brawler', 'Torcher', 'Splatter', 'Ravager', 'Defiler'];
+  monstersnoPort := ['Spinner', 'Brawler', 'Torcher', 'Splatter', 'Ravager', 'Defiler'];
+  setupPortals;
+  checkPoints := true;
+  breakTimer := GetTimeRunning;
+end;
+
+begin
+  setupScript;
+  repeat
+    CallProg;
+    MyLogIn;
+    WhichPortal;
+    MainLoop;
+    Wait(500);
+  until (false);
+end.

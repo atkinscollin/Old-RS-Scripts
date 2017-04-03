@@ -1,0 +1,121 @@
+Program CagedOgerer;
+{$DEFINE SMART}
+{$I SRL-OSR/SRL.Simba}
+
+//Edited by blakfishy
+//Added special attack use and made the log more indepth.
+
+Var
+  Spec: boolean;
+  OgreCount, TotalSlayed: Integer;
+
+Procedure DeclarePlayers;
+Begin
+  NumberOfPlayers(1);
+  CurrentPlayer := 0;
+  //Are you using a spec weapon like msb or bp?
+  Spec := True;
+
+ With Players[0] do
+  Begin
+    Players[0].Name :='';
+    Players[0].Pass :='';
+    Players[0].Active := True;
+  End;
+End;
+
+Const
+  ScriptVersion = '0.2';
+
+Procedure SetupCamera;
+begin
+  wait(randomrange(1500, 2500));
+  SetAngle(SRL_ANGLE_LOW);
+  wait(randomrange(300, 500));
+end;
+
+Procedure AntiBan;
+Begin
+  Case random(1000) Of
+    0..50: BoredHuman;
+    51..55: HoverSkill('Ranged', False);
+    56..60: HoverSkill('Hitpoints', False);
+    61..70: pickUpMouse();
+    71..500: MMouseOffClient('random');
+    501..550: compassMovement(10, 160, False);
+  End;
+End;
+
+Procedure SpecialAttack();
+begin
+  if (Spec = False) then
+    exit();
+  OgreCount += 1;
+  //Uses spec after 5 ogres are killed and then will have a 40% to use it.
+  if(OgreCount > 5) then
+    if (random(100) > 60) then
+      begin
+        gameTab(TAB_COMBAT);
+        Mouse(645, 424, 40, 3, True);
+        WriteLn('Used special attack.');
+        Wait(1500 + random(2000));
+        gameTab(TAB_INV);
+        OgreCount := 0;
+      end;
+end;
+
+Procedure KillOgres;
+Var
+ WeAttacked, NoOgre, x, y:Integer;
+Begin
+  MarkTime(NoOgre);
+  Repeat
+    FindObjCustom(x, y, ['Og', 're','Atta','ck', '2 more option'], [9680843, 9483978, 8957379], 5);
+    Mouse(x, y, 2, 2, False);
+    If TimeFromMark(NoOgre)> 90000 Then
+      Begin
+        If TimeFromMark(NoOgre)> 120000 Then
+          Begin
+            WriteLn('Could Not Find Ogre');
+            LogOut;
+            TerminateScript;
+          End;
+      End;
+  Until(OptionsExist(['ttack'], True));
+  ChooseOption('ttack');
+  MarkTime(WeAttacked);
+
+  SpecialAttack();
+  Antiban;
+  TotalSlayed += 1;
+  //Change the number value (30000) based on how fast you kill ogres.
+  While TimeFromMark(WeAttacked)< 30000+random(3000) Do
+End;
+
+Procedure RunTime;
+Begin
+  WriteLn('=================================================');
+  WriteLn('Caged Ogrerer - Version. ' + ScriptVersion);
+  WriteLn('Run Time: ' + TimeRunning);
+  WriteLn(inttostr(TotalSlayed) + ' ogres killed.');
+  WriteLn(inttostr(TotalSlayed*240) + ' ranged exp gained.');
+  WriteLn(inttostr(TotalSlayed*80) + ' hp exp gained.');
+  WriteLn(inttostr(TotalSlayed*80 + TotalSlayed*240) + ' total exp gained.');
+End;
+
+Begin
+  SetUpSRL;
+  DeclarePlayers;
+  SetupCamera;
+    If Not LoggedIn Then
+  Begin
+    LoginPlayer;
+    SetupCamera;
+  End Else
+    If Not LoggedIn Then
+      TerminateScript;
+  Repeat
+    KillOgres;
+    RunTime;
+  Until(false);
+End.

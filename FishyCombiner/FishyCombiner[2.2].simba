@@ -1,0 +1,464 @@
+program Two_Item_Combiner;
+{$DEFINE SMART}
+{$i AeroLib/AeroLib.Simba}
+{$i Reflection/Reflection.simba}
+
+{*
+    By Blak Fishy
+    Please report all bugs or suggestions!
+    Forum Thread: https://villavu.com/forum/showthread.php?t=114754&p=1360388#post1360388
+
+    Slaps any two items together like a bow and string.
+    Have the first and secondary ingredients in the top
+      right of the bank for the fastest banking.
+    Must have items in view of first tab or it will
+      be really slow banking.
+    Start in front of a booth with an empty inv.
+
+    Most testing done at VWest bank, so do your deeds there!
+
+    Thanks to anth, as I used his scripts as a base.
+                                                          *}
+  {*
+    Changes:
+    = 2.2
+    - Small change to antiban procedure
+    - Solved some problems in make
+                                                              *}
+
+const
+  ScriptVersion = '2.2';
+
+// ******* Begin User Setup *******
+  P_USERNAME     = '';
+  P_PASSWORD     = '';
+  P_PIN          = '';
+  P_MEM          = 1; {0 false, 1 true}
+
+  To_Make         = 0; {0 for all}
+  First_Ing      = 'Magic longbow (u)';  {must enter full exact name}
+  Second_Ing     = 'Bow string';
+  Thrd_Prod      = 'Magic longbow'; {product of both ingredients}
+
+  Training_skill = 'Fletching';
+  XP             = 91.5; {xp per make}
+
+  BANKTYPE       = 'booth'; {'booth' or 'npc'}
+//******* End User Setup *******
+
+var
+  TotalDone, levelsGained, globFlag : integer;
+  LocP : TReflectLocalPlayer;
+  tim : Timer;
+
+// Shows progress graphic - Thanks davi
+procedure Draw(text: String);
+var
+  DonePH, XPPH, levelsPH: integer;
+begin
+DonePH := Round(((TotalDone) * 3600) / (GetTimeRunning / 1000));
+XPPH := Round(((TotalDone*XP) * 3600) / (GetTimeRunning / 1000));
+levelsPH := Round(((levelsPH) * 3600) / (GetTimeRunning / 1000));
+  OS_Smart.__Graphics.Clear;
+  OS_Smart.__Graphics.DrawClippedText('===========================', 'SmallChars', point(12, 10), clyellow);
+  OS_Smart.__Graphics.DrawClippedText('  Combiner - Version. ' + ScriptVersion , 'SmallChars', point(12, 25), clyellow);
+  OS_Smart.__Graphics.DrawClippedText('  Run Time : ' + TimeRunning ,'SmallChars', point(12, 45), clyellow);
+  OS_Smart.__Graphics.DrawClippedText('    ' +   IntToStr(TotalDone) + '    Total Done ', 'SmallChars', point(12, 65), clyellow);
+  OS_Smart.__Graphics.DrawClippedText('    ' +   IntToStr(DonePH) + '    Done (P/H)', 'SmallChars', point(12, 85), clyellow);
+  OS_Smart.__Graphics.DrawClippedText('    ' +   Floattostr(TotalDone*XP) + '     ' + Training_skill + ' Exp Gained', 'SmallChars', point(12, 105), clyellow);
+  OS_Smart.__Graphics.DrawClippedText('    ' +   IntToStr(XPPH) + '     ' + Training_skill + ' Exp (P/H)', 'SmallChars', point(12, 125), clyellow);
+  OS_Smart.__Graphics.DrawClippedText('    ' +   IntToStr(levelsGained) + '    Levels Gained ', 'SmallChars', point(12, 145), clyellow);
+  OS_Smart.__Graphics.DrawClippedText('    ' +   IntToStr(levelsPH) + '    Levels (P/H)', 'SmallChars', point(12, 165), clyellow);
+  OS_Smart.__Graphics.DrawClippedText('  Status : ' + text, 'SmallChars', point(12, 185), clyellow);
+  OS_Smart.__Graphics.DrawClippedText('===========================', 'SmallChars', point(12, 200), clyellow);
+end;
+
+procedure declarePlayer();
+begin
+  Me.Name := P_USERNAME;
+  Me.Pass := P_PASSWORD;
+  Me.Pin := P_PIN;
+  Me.Nick := '';
+  Me.Active := True;
+  Me.Member := P_MEM;
+end;
+
+procedure setupPlayer();
+begin
+  if not isLoggedIn() then
+    loginPlayer(false);
+  while not RSReady() do
+    SleepAndMoveMouse(100 + Random(500));
+  setAngle(ANGLE_HIGH);
+end;
+
+procedure setup();
+begin
+  TotalDone := 0;
+  levelsGained := 0;
+  globFlag := 0;
+  mouseSpeed := Random(23, 30);
+  setupPlayer();
+end;
+
+procedure customMouse(point: TPoint);
+begin
+  case random(0, 6) of
+    0..2: BrakeMMouse(point, random(5), random(5), true);
+    3: BrakeMMouse(point, random(5), random(5), false);
+    4..5: MissMouse(point, random(5), random(5));
+    6: HumanMMouse(point, random(5), random(5));
+  end;
+end;
+
+procedure L_Click(upstr: string; upwait: integer)
+begin
+  if (waitUptext(upstr, upwait)) then
+  begin
+    sleep(20 + random(30));
+    FastClick(Mouse_Left);
+  end;
+end;
+
+procedure R_Click(upstr: string; upwait: integer; textstr: string; waiti: integer);
+begin
+  if (waitUptext(upstr, upwait)) then
+  begin
+    sleep(20 + random(30));
+    fastClick(MOUSE_RIGHT);
+    WaitOption(textstr, waiti);
+  end;
+end;
+
+procedure C_Click(upstr: string; upwait: integer; textstr: string; waiti: integer);
+begin
+  case random(0, 15) of
+    0..14: L_Click(upstr, upwait);
+    15: R_Click(upstr, upwait, textstr, waiti);
+  end;
+end;
+
+// Called when timer exceeds x time to logout and stop the script
+// inFunc tells me what procedure it timed out during
+function timedOut(inFunc: String): boolean;
+begin
+  Writeln('Timed out while doing ' + inFunc);
+  if isBankOpen() then closeInterface();
+  logoutPlayer();
+  TerminateScript();
+end;
+
+procedure AntiBan;
+begin
+  tim.start;
+  Draw('Antibanning');
+  case random(100) of
+    1..3: examineInv();
+    4..6: randomRClick();
+    7..12: hoverSkill('random', false);
+    13: pickUpMouse();
+    14..17: ;
+    18..23: humanRandomMouse();
+    24..29: randomTab(True);
+    30..100: MMouseOffClient('random');
+  end;
+  if tim.timeElapsed > 50000 then timedOut('antiban');
+end;
+
+// Opens bank and enters the pin
+// Works for npc and booth currently; if you have code
+//   working for chest please share!
+procedure OpenBank;
+var
+  Bank : TReflectObject;
+  BankNPC : TReflectNPC;
+begin
+  tim.start;
+  Draw('Opening Bank');
+  repeat // Until bank is open
+
+  if (BANKTYPE = 'booth') then
+  begin
+    case random(0, 9) of
+    0..9:
+      begin
+        if Bank.Find(objGame, 'Bank booth', 10) then
+        begin
+          Bank.Find(objGame, 'Bank booth', 10);
+          Reflect.Mouse.Move(Bank.GetMSPoint, 5, 5);
+          C_Click('ooth', 250, 'ank Bank', 300);
+        end;
+
+        if not (Bank.Find(objGame, 'Bank booth', 10)) then
+        begin
+          Writeln('Bank booth not found');
+          globFlag+=1;
+          exit();
+        end;
+      end;
+    10:
+      begin
+        if BankNPC.Find('Banker') then
+        begin
+          BankNPC.Find('Banker');
+          Reflect.Mouse.Move(BankNPC.GetMSPoint, 3, 3);
+          R_Click('anker', 250, 'ank Bank', 300);
+        end;
+
+        if not BankNPC.Find('Banker') then
+        begin
+          Writeln('Banker not found');
+          globFlag+=1;
+          exit();
+        end;
+      end;
+    end;
+  end;
+
+  if (BANKTYPE = 'npc') then
+  begin
+    if BankNPC.Find('Banker') then
+    begin
+      BankNPC.Find('Banker');
+      Reflect.Mouse.Move(BankNPC.GetMSPoint, 3, 3);
+      R_Click('anker', 250, 'ank Bank', 300);
+    end;
+
+    if not BankNPC.Find('Banker') then
+    begin
+      Writeln('Banker not found');
+      globFlag+=1;
+      exit;
+    end;
+  end;
+
+  if Reflect.Bank.IsPinOpen then TReflectionBank.EnterPin(P_PIN);
+  wait(randomRange(500, 750));
+  if (tim.timeElapsed > 30000) then timedOut('open bank');
+  until(isBankOpen());
+end;
+
+// Quick deposits all items
+procedure Deposit;
+begin
+  tim.start;
+  Draw('Depositing');
+  quickDeposit('inv');
+  wait(randomRange(250, 450));
+  if (tim.timeElapsed > 15000) then timedOut('deposit');
+end;
+
+// Withdraws 14 of one item then 14/all of the second item.
+procedure Withdraw;
+var
+  ScndB, FrstB : TReflectBankItem;
+begin
+  tim.start;
+  Draw('Withdrawing');
+  begin
+    repeat // Until inventory is full
+    if not (ScndB.Find(Second_Ing) and FrstB.Find(First_Ing)) then
+    begin
+      WriteLn('Low on ingredients, Quiting!');
+      if isBankOpen() then closeInterface();
+      logoutPlayer();
+      TerminateScript();
+    end
+    // Randomly chooses which item it withdraws first
+    case random(0, 1) of
+      0:
+      begin
+        ScndB.Withdraw(-14);
+        case random(0, 1) of
+          0: FrstB.Withdraw(-14);
+          1: FrstB.Withdraw(-1);
+        end;
+      end;
+      1:
+      begin
+        FrstB.Withdraw(-14);
+        case random(0, 1) of
+          0: ScndB.Withdraw(-14);
+          1: ScndB.Withdraw(-1);
+        end;
+      end;
+    end;
+    wait(randomRange(750, 950));
+    until(isInvFull());
+    if (tim.timeElapsed > 30000) then timedOut('withdraw');
+  end;
+  if (isBankOpen()) then closeInterface();
+end;
+
+// Combines two items.
+// Clicking may need to be changed to do something like
+//  battlestaves that can't be right clicked to use.
+procedure Make;
+var
+  Thrd, Scnd, Frst : TReflectInvItem;
+  Pnt : TPoint;
+begin
+  tim.start;
+  if not (Scnd.Find(Second_Ing) and Frst.Find(First_Ing)) then
+  begin
+    Writeln('No first/second ingredients found in inventory.');
+    globFlag+=1;
+    exit();
+  end;
+
+  if (To_Make > 0) then
+  begin
+    // Skipping the last inventory avoids problems.
+    if ((TotalDone+14) >= To_Make) then
+    begin
+      WriteLn('Items requested to make completed.');
+      logoutPlayer();
+      TerminateScript();
+    end;
+  end;
+
+  while not Thrd.Find(Thrd_Prod) do
+  begin
+  Draw('Beginnning Make');
+  // Switches between useing item one or two first
+  case random(0, 1) of
+  0:
+  begin
+    if Frst.Find(First_Ing) then
+    begin
+      Pnt := Frst.GetPoint();
+      customMouse(Pnt);
+      L_Click('se', 300);
+      wait(randomRange(250, 450));
+    end;
+    if Scnd.Find(Second_Ing) then
+    begin
+      Pnt := Scnd.GetPoint();
+      customMouse(Pnt);
+      L_Click('se', 300);
+      wait(randomRange(450, 650));
+    end;
+  end;
+  1:
+  begin
+    if Scnd.Find(Second_Ing) then
+    begin
+      Pnt := Scnd.GetPoint();
+      customMouse(Pnt);
+      L_Click('se', 300);
+      wait(randomRange(250, 450));
+    end;
+    if Frst.Find(First_Ing) then
+    begin
+      Pnt := Frst.GetPoint();
+      customMouse(Pnt);
+      L_Click('se', 300);
+      wait(randomRange(450, 650));
+    end;
+  end;
+  end;
+
+  // Waits until the dialog box appears and clicks make all
+    gaussMouseBox(105, 385, 420, 440, Mouse_Move);
+    if (waitUptext('ake', 1500)) then
+    begin
+      fastClick(MOUSE_RIGHT);
+      waitOption('Make All', 500);
+    end;
+    Draw('Making Items');
+    wait(randomRange(800, 3500));
+    AntiBan;
+    if (tim.timeElapsed > 55000) then timedOut('make setup');
+  end;
+
+  while (Frst.Find(First_Ing) and Scnd.Find(Second_Ing)) do
+  begin
+    if (tim.timeElapsed > 55000) then timedOut('make items');
+    wait(randomRange(50, 175));
+    if levelUpEx(true) then
+    begin
+      levelsGained+=1;
+      Writeln('Woo level up!');
+      exit();
+    end;
+  end;
+
+  // wew lad
+  case random(200) of
+    69: doEmote(13);
+  end;
+
+  if not (Frst.Find(First_Ing) and Scnd.Find(Second_Ing)) then TotalDone+=14;
+end;
+
+// TY Anth :3
+// Finds what step of the program you are on
+function getState(): Integer;
+var
+  Scnd, Frst : TReflectInvItem;
+begin
+  Draw('Finding State');
+  if not isLoggedIn() then
+    exit(0);
+  if ((getCurrentTab <> TAB_INV) and (not isBankOpen())) then
+    exit(1);
+  if (not isInvFull()) and (not isBankOpen()) then
+    exit(2);
+  if (getInvCount() > 0) and (isBankOpen()) then
+    exit(3);
+  if (getInvCount() = 0) and (isBankOpen()) then
+    exit(4);
+  if (isInvFull()) and (isBankOpen()) then
+    exit(5);
+  if (Frst.Find(First_Ing) and Scnd.Find(Second_Ing)) and (not isBankOpen()) and (not LocP.isAnimating) and (getCurrentTab = TAB_INV) then
+    exit(6);
+  // Covers the case of a full inv of ing 1 or ing 2
+  if (not Frst.Find(First_Ing) or not Scnd.Find(Second_Ing)) then
+    exit(2);
+end;
+
+// TY Anth :3
+// Fetches what step you are on from getState() then executes
+procedure executeState(State: Integer);
+begin
+  case (State) of
+    0: setupPlayer();
+    1: gameTab(TAB_INV);
+    2: openBank();
+    3: Deposit();
+    4: Withdraw();
+    5: closeInterface();
+    6: Make();
+  end;
+  sleep(Random(100, 200));
+end;
+
+// Global variable globFlag is checked to see how many times
+//  errors were encounted. If two errors occur, then the
+//  program will stop.
+procedure globCheck();
+begin
+  if (globFlag = 1) then
+  begin
+    Writeln('Something went bad or slow :(');
+    executeState(getState());
+  end;
+  if (globFlag = 2) then
+  begin
+    Writeln('Something went bad twice :((');
+    if (isBankOpen()) then closeInterface();
+    logoutPlayer();
+    TerminateScript();
+  end;
+end;
+
+begin
+  declarePlayer();
+  InitAL();
+  Reflect.Setup;
+  setup();
+  repeat
+    executeState(getState());
+    globCheck();
+  until (false);
+end.
